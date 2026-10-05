@@ -21,21 +21,23 @@ A role-based REST API for submitting, assigning, tracking, and resolving custome
 1. From the repository root, install the backend dependencies:
 
    ```bash
-   cd backend
+   cd complaint-management-api
    npm install
    ```
 
-2. Create a `.env` file in the `backend` directory:
+2. Create a `.env` file in the `complaint-management-api` directory:
 
    ```env
    MONGO_URI=mongodb://127.0.0.1:27017/complaint-portal
    JWT_SECRET=replace-with-a-long-random-secret
+   JWT_EXPIRES_IN=7d
    PORT=8000
+   ADMIN_SIGNUP_CODE=replace-with-a-private-random-code
    ```
 
    Keep `.env` private. Do not commit database credentials or JWT secrets. The `.gitignore` excludes `.env` and `node_modules/`.
 
-3. Start the API from the `backend` directory in development mode:
+3. Start the API from the `complaint-management-api` directory in development mode:
 
    ```bash
    npm run dev
@@ -47,7 +49,20 @@ A role-based REST API for submitting, assigning, tracking, and resolving custome
    npm start
    ```
 
-The API listens on port `8000` by default. Set `PORT` to use another port. Check that it is running at `http://localhost:8000/api/health`.
+The API listens on port `8000` by default, after MongoDB connects successfully. Set `PORT` to use another port. Check that it is running at `http://localhost:8000/api/health`.
+
+### MongoDB connection troubleshooting
+
+Run `npm run check-db` to test the configured connection and ping MongoDB without starting the API or changing database records. The API and this command load the backend's `.env` regardless of your working directory.
+
+If Atlas reports `tlsv1 alert internal error` or `SSL alert number 80`:
+
+1. Open your Atlas project's **Network Access** IP access list, select **Add IP Address**, and add your current public IP. Wait until the entry is active. If you changed Wi-Fi or VPN connections, check the IP again.
+2. Confirm that your cluster is running and that `MONGO_URI` matches the connection string from **Connect → Drivers**.
+3. Check that your network, VPN, or firewall allows outbound connections to the cluster on port `27017`.
+4. Run `npm run check-db` again, then restart `npm run dev`.
+
+These are diagnostic checks, not a definitive explanation of every TLS failure. See [Atlas connection troubleshooting](https://www.mongodb.com/docs/atlas/troubleshoot-connection/). Keep TLS certificate validation enabled.
 
 After starting the server, [open the interactive Swagger UI](http://localhost:4000/api-docs) to inspect and test every endpoint. This link uses the current `PORT=4000` setting; update the port in the link if your `.env` uses a different value. Select **Try it out** on an operation, enter its parameters or request body, and select **Execute** to send the request. For protected endpoints, use **Authorize** and enter your JWT; Swagger UI adds the `Bearer` prefix.
 
@@ -59,12 +74,26 @@ Rate limits are 100 requests per 15 minutes per IP across the API and 10 request
 | ---------------------- | ------------------------------ |
 | `npm run dev`          | Start with Nodemon             |
 | `npm start`            | Start the API                  |
+| `npm run check-db`     | Test MongoDB connection and ping |
 | `npm run create-admin` | Run the admin bootstrap script |
-| `npm test`             | Tests are not configured yet   |
+| `npm test`             | Run registration tests         |
 
 **Admin bootstrap warning:** `scripts/createAdmin.js` currently defines fixed credentials in source code. Review and change that script before running it, and do not use its current credentials in a deployed environment.
 
 ## Authentication and Roles
+
+Admin signup uses `POST /api/auth/register-admin` with `firstName`, `lastName`,
+`userName`, `email`, `password`, and `signupCode`. The portal's `/admin-signup`
+page collects these fields, stores the returned JWT, and signs in the new admin.
+Admin passwords must be 8-20 characters. Regular registration always creates a
+`USER`, regardless of any role supplied in the request.
+
+Set `ADMIN_SIGNUP_CODE` in the API's private `.env`, restart the API, and provide
+that code only to people authorized to create admin accounts. Use a random code;
+never put it in a `VITE_*` setting, source code, or frontend bundle. Admin signup
+returns `503` when the code is not configured and `403` when the supplied code
+is missing or incorrect. Existing-account conflicts return `409`. Rotating or
+clearing the configured code prevents future signups with the old code.
 
 Send the JWT returned by login in the authorization header for protected endpoints:
 
@@ -76,7 +105,7 @@ Authorization: Bearer <token>
 | --------- | -------------------------------------------------------------------------------------------- |
 | `USER`    | Submit and view own complaints, add comments, close resolved complaints, view user dashboard |
 | `HANDLER` | View assigned complaints, update status, resolve complaints, view handler dashboard          |
-| `ADMIN`   | View all complaints, assign or reject pending complaints, view admin dashboard               |
+| `ADMIN`   | View all complaints, assign or reject pending complaints, resolve active complaints, view admin dashboard |
 
 ## Error Handling
 
@@ -91,6 +120,7 @@ All routes are prefixed with the paths shown below. Protected routes require a v
 | `GET`   | `/`                                   | Public        | API status                               |
 | `GET`   | `/api/health`                         | Public        | Health check                             |
 | `POST`  | `/api/auth/register`                  | Public        | Register a user                          |
+| `POST`  | `/api/auth/register-admin`            | Signup code   | Register an administrator                |
 | `POST`  | `/api/auth/login`                     | Public        | Log in and receive a JWT                 |
 | `GET`   | `/api/auth/me`                        | Authenticated | Get the current user                     |
 | `GET`   | `/api/user/dashboard`                 | `USER`        | Get user dashboard data                  |
@@ -110,8 +140,9 @@ All routes are prefixed with the paths shown below. Protected routes require a v
 | `GET`   | `/api/admin/complaints/:id`           | `ADMIN`       | Get a complaint                          |
 | `PATCH` | `/api/admin/complaints/:id/assign`    | `ADMIN`       | Assign a pending complaint to a handler  |
 | `PATCH` | `/api/admin/complaints/:id/reject`    | `ADMIN`       | Reject a pending complaint               |
+| `PATCH` | `/api/admin/complaints/:id/resolve`   | `ADMIN`       | Resolve an active complaint with a response |
 
-Complaint categories are `PAYMENT`, `ACCOUNT`, `TECHNICAL`, `SERVICE`, and `OTHER`. Priorities are `LOW`, `MEDIUM`, `HIGH`, and `URGENT`. Statuses progress through `PENDING`, `ASSIGNED`, `IN_PROGRESS`, `RESOLVED`, and `CLOSED`; pending complaints may also be `REJECTED`.
+Complaint categories are `PAYMENT`, `ACCOUNT`, `TECHNICAL`, `SERVICE`, and `OTHER`. Priorities are `LOW`, `MEDIUM`, `HIGH`, and `URGENT`. Statuses progress through `PENDING`, `ASSIGNED`, `IN_PROGRESS`, `RESOLVED`, and `CLOSED`; pending complaints may also be `REJECTED`. Administrators may resolve a `PENDING`, `ASSIGNED`, or `IN_PROGRESS` complaint directly by providing a non-empty resolution. This records the admin identity and timestamp in status history and leaves the complainant's account unchanged. Resolved, rejected, and closed complaints cannot be resolved again.
 
 Registration requires `firstName`, `lastName`, `userName`, `email`, and `password`. Usernames are unique and 2-20 characters; passwords must be 6-20 characters. Login accepts either `email` or `userName` with the password. All protected routes require `Authorization: Bearer <token>`; role-specific routes also require the role listed above. Comment endpoints additionally authorize access to the complaint owner, its assigned handler, or an admin.
 

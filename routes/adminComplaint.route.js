@@ -5,6 +5,7 @@ const {
   getAdminComplaint,
   assignComplaint,
   rejectComplaint,
+  resolveAdminComplaint,
 } = require("../controllers/adminComplaint.controller.js");
 
 const protect = require("../middleware/auth.middleware.js");
@@ -21,6 +22,13 @@ router.patch(
   protect,
   authorize("ADMIN"),
   assignComplaint,
+);
+
+router.patch(
+  "/complaints/:id/resolve",
+  protect,
+  authorize("ADMIN"),
+  resolveAdminComplaint,
 );
 
 router.patch(

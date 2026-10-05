@@ -5,6 +5,8 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const fs = require("node:fs");
 const path = require("node:path");
+dotenv.config({ path: path.join(__dirname, ".env") });
+
 const swaggerUi = require("swagger-ui-express");
 const YAML = require("yaml");
 
@@ -21,8 +23,6 @@ const adminComplaintRoutes = require("./routes/adminComplaint.route.js");
 const handlerComplaintRoutes = require("./routes/handlerComplaint.route.js");
 const errorHandler = require("./middleware/error.middleware.js");
 const AppError = require("./utils/app-error.js");
-
-dotenv.config();
 
 const openApiDocument = YAML.parse(
   fs.readFileSync(path.join(__dirname, "docs/openapi.yaml"), "utf8"),
@@ -62,8 +62,6 @@ const authLimiter = rateLimit({
   },
 });
 
-connectDB();
-
 app.get("/", (req, res) => {
   res.json({
     message: "Complaint Management Portal API is running",
@@ -96,6 +94,19 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 8000;
 
-app.listen(PORT, () => {
+async function startServer() {
+  await connectDB();
+  return app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });
+}
+
+if (require.main === module) {
+  startServer().catch(async (error) => {
+    console.error(error.message);
+    await require("mongoose").disconnect();
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { app, startServer };

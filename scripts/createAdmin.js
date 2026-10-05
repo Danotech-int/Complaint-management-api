@@ -4,7 +4,7 @@ const bcrypt = require("bcryptjs");
 const connectDB = require("../config/db.js");
 const User = require("../models/user.model.js");
 
-dotenv.config();
+dotenv.config({ path: require("node:path").join(__dirname, "../.env") });
 
 const createAdmin = async () => {
   try {

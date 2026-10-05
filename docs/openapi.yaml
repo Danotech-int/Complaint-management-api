@@ -96,6 +96,44 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/ServerError"
+  /api/auth/register-admin:
+    post:
+      tags: [Authentication]
+      summary: Register an administrator using a private signup code
+      description: >-
+        Requires the signupCode configured in ADMIN_SIGNUP_CODE on the server.
+        Admin signup is disabled when this setting is empty. The server assigns
+        the ADMIN role; the request cannot choose a role. Passwords must be 8-20 characters.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRegisterRequest"
+      responses:
+        "201":
+          description: Administrator registered; use the returned JWT to sign in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: Admin signup is not configured on the server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /api/auth/login:
     post:
       tags: [Authentication]
@@ -671,6 +709,46 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/ServerError"
+  /api/admin/complaints/{id}/resolve:
+    parameters:
+      - $ref: "#/components/parameters/ComplaintId"
+    patch:
+      tags: [Admin]
+      summary: Resolve an active complaint as an administrator
+      description: >-
+        Requires ADMIN. Accepts PENDING, ASSIGNED, or IN_PROGRESS complaints.
+        Records the resolution, timestamp, and administrator in status history.
+        Resolved, rejected, and closed complaints cannot be resolved again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resolution]
+              properties:
+                resolution:
+                  type: string
+                  minLength: 1
+      responses:
+        "200":
+          description: Complaint resolved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplaintMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /api/admin/complaints/{id}/reject:
     parameters:
       - $ref: "#/components/parameters/ComplaintId"
@@ -848,6 +926,22 @@ components:
           format: password
           minLength: 6
           maxLength: 20
+    AdminRegisterRequest:
+      allOf:
+        - $ref: "#/components/schemas/RegisterRequest"
+        - type: object
+          required: [signupCode]
+          properties:
+            password:
+              type: string
+              format: password
+              minLength: 8
+              maxLength: 20
+            signupCode:
+              type: string
+              format: password
+              minLength: 1
+              description: Private admin signup code supplied by the system administrator.
     LoginRequest:
       type: object
       required: [password]

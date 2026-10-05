@@ -244,9 +244,56 @@ const rejectComplaint = async (req, res, next) => {
   }
 };
 
+const resolveAdminComplaint = async (req, res, next) => {
+  try {
+    const { resolution } = req.body || {};
+    if (typeof resolution !== "string" || !resolution.trim()) {
+      throw new AppError("Resolution is required", 400);
+    }
+
+    // Admins may resolve any active complaint. The status filter prevents
+    // overwriting a resolution or changing a closed/rejected complaint.
+    const resolvedAt = new Date();
+    const complaint = await Complaint.findOneAndUpdate(
+      {
+        complaintId: req.params.id,
+        status: { $in: ["PENDING", "ASSIGNED", "IN_PROGRESS"] },
+      },
+      {
+        $set: { status: "RESOLVED", resolution: resolution.trim(), resolvedAt },
+        $push: {
+          statusHistory: {
+            status: "RESOLVED",
+            changedBy: req.user._id,
+            note: resolution.trim(),
+            createdAt: resolvedAt,
+            updatedAt: resolvedAt,
+          },
+        },
+      },
+      { new: true, runValidators: true },
+    )
+      .populate("submittedBy", "firstName lastName email")
+      .populate("assignedTo", "firstName lastName email");
+
+    if (!complaint) {
+      const exists = await Complaint.exists({ complaintId: req.params.id });
+      throw new AppError(
+        exists ? "Only pending, assigned or in-progress complaints can be resolved" : "Complaint not found",
+        exists ? 400 : 404,
+      );
+    }
+
+    return res.status(200).json({ message: "Complaint resolved successfully", complaint });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   getAllComplaints,
   getAdminComplaint,
   assignComplaint,
   rejectComplaint,
+  resolveAdminComplaint,
 };
